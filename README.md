@@ -1,6 +1,6 @@
 # Stoncs
 
-**Stoncs** is a narrative-aware micro-portfolio optimizer that combines **financial market data** and **news narratives** to create optimized, diversified portfolios. Powered by **Snowflake + Snowpark + ML**, Stoncs detects trending market stories and dynamically adjusts portfolio recommendations based on company trends.
+**Stoncs** is a narrative-aware micro-portfolio optimizer that combines **financial market data** and **news narratives** to create optimized, diversified portfolios. This repo focuses on a REST-first Snowflake integration (Snowflake REST API) and includes a compact demo pipeline so you can present results without external setup.
 
 ---
 
@@ -28,7 +28,7 @@ Users can input a budget and risk tolerance, and Stoncs will return:
 - Trending market narratives
 - Companies currently driving market trends
 
-All computations leverage **Snowflake’s data warehousing capabilities** and **Snowpark’s in-database ML** to ensure scalability and live querying.
+All Snowflake interactions in this repo use a small reusable Snowflake REST client (`stoncs/snowflake_api_client.py`). For hackathon/demo usage the app falls back to an in-memory demo pipeline so no credentials are required.
 
 ---
 
@@ -94,29 +94,34 @@ source venv/bin/activate  # Mac/Linux
 venv\Scripts\activate     # Windows
 ```
 
-3. Install dependencies:
+3. Install dependencies (fast demo install):
+
+```bash
+pip install -r requirements_demo.txt
+```
+
+If you want the full ML experience (embeddings + clustering) install the full set:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Set up Snowflake connection (update `config.py`):
+4. (Optional) Set up Snowflake connection (for live demo):
 
-```python
-account = "<your_account>"
-user = "<your_user>"
-password = "<your_password>"
-warehouse = "<your_warehouse>"
-database = "STONCS"
-schema = "MARKET_DATA"
+Set the following environment variables if you want the app to use a live Snowflake account:
+
+```
+SNOWFLAKE_ACCOUNT=<your_account>
+SNOWFLAKE_USER=<your_user>
+SNOWFLAKE_PASSWORD=<your_password>
 ```
 
-5. Run Snowflake ingestion + ML scripts sequentially:
+When these env vars are present the app will run Snowflake-backed flows using the REST client.
+
+5. (Optional) Upload demo data and detect narratives in Snowflake (only if you set Snowflake env vars):
 
 ```bash
-python snowflake_ingest.py
-python narrative_trend_detector.py
-python portfolio_optimizer.py
+python run_demo.py
 ```
 
 6. Start Streamlit dashboard:
@@ -125,13 +130,14 @@ python portfolio_optimizer.py
 streamlit run app.py
 ```
 
-### Snowflake REST API demo
+### Snowflake REST API (demo)
 
-You can call Snowflake's REST endpoints directly. Below is a minimal demo `curl`
-sequence showing how to authenticate (legacy login-request) and run a simple
-query via the REST `queries/v1/query-request` endpoint. Replace placeholders
-with your account + credentials. This repository's `stoncs/snowflake_api_client.py`
-wraps the same calls in Python.
+This repo includes `stoncs/snowflake_api_client.py` — a small reusable wrapper for Snowflake's REST endpoints (authenticate, run_query, upload_csv, manage_warehouse). For demonstration you can:
+
+1. Set Snowflake env vars (see above).
+2. In the app sidebar click **Run test query (Snowflake)** to run a live `SELECT current_version()` via the REST API and view the JSON response.
+
+If you prefer curl, the legacy login-request + query-request pattern looks like this (replace placeholders):
 
 ```bash
 # Authenticate (legacy login-request)
@@ -148,7 +154,7 @@ curl -X POST \
   -d '{"sqlText": "SELECT current_version()"}'
 ```
 
-This demo uses the same REST endpoints that `stoncs/snowflake_api_client.py` calls.
+The Streamlit app also has an option to persist recommended allocations into Snowflake to demonstrate a live write via the REST API.
 
 ---
 

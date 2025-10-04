@@ -1,2 +1,8 @@
 simple stoncs client for judges to test it from the website
 how is the website gonna look like? need good ui
+
+to do
+add snowflake creden and other details
+do streamlit part
+use stoncs.work
+check if Oauth is needed

@@ -118,7 +118,39 @@ def recommend_portfolio(budget: float, risk_tolerance: float, metrics_with_narra
     df["combined_weight"] = df["combined_weight"] / df["combined_weight"].sum()
 
     df["allocation_amount"] = df["combined_weight"] * budget
-    return df[["ticker", "risk_label", "avg_return", "volatility", "total_mentions", "narrative_score", "combined_weight", "allocation_amount"]]
+    # Financial metric: simple Sharpe-like ratio (for display)
+    eps = 1e-6
+    df["sharpe"] = df["avg_return"] / (df["volatility"] + eps)
+    return df[["ticker", "risk_label", "avg_return", "volatility", "total_mentions", "narrative_score", "combined_weight", "allocation_amount", "sharpe"]]
+
+
+def persist_recommendations(df: pd.DataFrame, budget: float, risk_tolerance: float, schema: str = "STONCS_MARKET", table: str = "PORTFOLIO_RECOMMENDATIONS") -> Dict[str, Any]:
+    """Persist recommended allocations into Snowflake via the REST client.
+
+    Creates a simple table and does batched INSERTs. Returns a dict with rows_inserted.
+    """
+    authenticate()
+    full_table = f"{schema}.{table}"
+    # create table if not exists
+    run_query(f"CREATE TABLE IF NOT EXISTS {full_table} (ts TIMESTAMP_LTZ, budget FLOAT, risk_tolerance FLOAT, ticker STRING, allocation_amount FLOAT)")
+
+    from datetime import datetime
+    ts = datetime.utcnow().isoformat()
+    rows = []
+    for _, r in df.iterrows():
+        ticker = str(r.get("ticker")).replace("'", "''")
+        alloc = float(r.get("allocation_amount") or 0.0)
+        rows.append(f"('{ts}', {float(budget)}, {float(risk_tolerance)}, '{ticker}', {alloc})")
+
+    inserted = 0
+    batch = 200
+    for i in range(0, len(rows), batch):
+        vals = ",".join(rows[i:i+batch])
+        sql = f"INSERT INTO {full_table} (ts, budget, risk_tolerance, ticker, allocation_amount) VALUES {vals}"
+        run_query(sql)
+        inserted += min(batch, len(rows) - i)
+
+    return {"rows_inserted": inserted}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+# Lightweight dependencies for running the Stoncs demo (fast install)
+streamlit>=1.18
+pandas>=1.5
+numpy>=1.23
+altair>=4.2
+matplotlib>=3.5
+wordcloud>=1.8

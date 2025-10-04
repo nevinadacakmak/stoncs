@@ -15,7 +15,7 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
 from .snowflake_api_client import run_query, authenticate
-from .optimizer import cluster_risk_levels, recommend_portfolio
+from .optimizer import cluster_risk_levels, recommend_portfolio, persist_recommendations
 from .ingest import generate_demo_market_data, generate_demo_news
 import re
 import os
@@ -210,6 +210,20 @@ def main():
 
     st.markdown("Domain: stoncs.local (demo) — connect your Snowflake credentials via env vars before running")
 
+    # Snowflake connection indicator & quick test
+    sf_present = bool(os.environ.get("SNOWFLAKE_ACCOUNT") and os.environ.get("SNOWFLAKE_USER") and os.environ.get("SNOWFLAKE_PASSWORD"))
+    if sf_present:
+        st.sidebar.success("Connected: Snowflake REST API (credentials present)")
+        if st.sidebar.button("Run test query (Snowflake)"):
+            try:
+                authenticate()
+                r = run_query("SELECT current_version()")
+                st.sidebar.json(r)
+            except Exception as e:
+                st.sidebar.error(f"Query failed: {e}")
+    else:
+        st.sidebar.info("Running demo pipeline (no Snowflake credentials detected)")
+
     budget = st.number_input("Budget ($)", min_value=100.0, value=10000.0, step=100.0)
     risk_tolerance = st.slider("Risk tolerance", 0.0, 1.0, 0.5)
 
@@ -273,6 +287,16 @@ def main():
                     st.write("No trend data available — run narratives pipeline first.")
             except Exception:
                 st.write("No trend data available — run narratives pipeline first.")
+
+            # Optionally persist recommendations to Snowflake
+            if sf_present:
+                save = st.checkbox("Save these allocations to Snowflake")
+                if save:
+                    try:
+                        res = persist_recommendations(rec, budget, risk_tolerance)
+                        st.success(f"Saved {res.get('rows_inserted')} rows to Snowflake")
+                    except Exception as e:
+                        st.error(f"Failed to save recommendations: {e}")
 
 
 if __name__ == "__main__":
