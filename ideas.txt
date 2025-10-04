@@ -1,8 +1,14 @@
 simple stoncs client for judges to test it from the website
 how is the website gonna look like? need good ui
+is this the smart economies area?
 
 to do
-add snowflake creden and other details
+add snowflake i need to set it up
 do streamlit part
-use stoncs.work
+use stoncs.work domain
 check if Oauth is needed
+try snowflake cortex ai studio
+
+snowflakes
+where am i getting the data from
+snowflake rest api? am i using it enough

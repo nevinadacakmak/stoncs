@@ -16,6 +16,12 @@ import requests
 import json
 from typing import Optional, Dict, Any
 
+# Optional Snowflake connector fallback
+try:
+    import snowflake.connector as _sf_connector
+except Exception:
+    _sf_connector = None
+
 # Module-level token cache
 _SESSION_TOKEN: Optional[str] = None
 _BASE_URL: Optional[str] = None
@@ -86,11 +92,70 @@ def run_query(sql: str, timeout: int = 120) -> Dict[str, Any]:
     """
     base = _get_base_url()
     url = base + "/queries/v1/query-request"
-    body = {"sqlText": sql}
-    headers = _headers()
-    resp = requests.post(url, headers=headers, json=body, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    # Snowflake's queries endpoint may expect the session token to be present in
+    # the request body under a `data` object. Include both common keys to be
+    # compatible with different account setups.
+    # First try the REST-based approach
+    try:
+        token = _SESSION_TOKEN or authenticate().get("token")
+        body = {"sqlText": sql, "data": {"TOKEN": token, "SESSION_TOKEN": token}}
+        headers = _headers()
+        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as rest_err:
+        # If REST fails (401/other), and the Snowflake connector is available,
+        # fall back to a direct connector-based execution using the same
+        # credentials from environment variables. This is more robust for
+        # interactive/hackathon usage when REST flows differ by account.
+        if _sf_connector is None:
+            raise
+
+        # Connect using username/password from env (do not print)
+        user = os.environ.get("SNOWFLAKE_USER")
+        pwd = os.environ.get("SNOWFLAKE_PASSWORD")
+        account = os.environ.get("SNOWFLAKE_ACCOUNT")
+        if not (user and pwd and account):
+            # re-raise original REST error for visibility
+            raise rest_err
+
+        conn = _sf_connector.connect(user=user, password=pwd, account=account)
+        try:
+            cur = conn.cursor()
+            # If the environment provides a default database/schema/warehouse,
+            # ensure the session uses them to avoid "no current database" errors.
+            db = os.environ.get("SNOWFLAKE_DATABASE")
+            schema = os.environ.get("SNOWFLAKE_SCHEMA")
+            wh = os.environ.get("SNOWFLAKE_WAREHOUSE")
+            if db:
+                try:
+                    cur.execute(f"USE DATABASE {db}")
+                except Exception:
+                    # try quoted identifier
+                    cur.execute(f'USE DATABASE "{db}"')
+            if schema:
+                try:
+                    cur.execute(f"USE SCHEMA {schema}")
+                except Exception:
+                    cur.execute(f'USE SCHEMA "{schema}"')
+            if wh:
+                try:
+                    cur.execute(f"USE WAREHOUSE {wh}")
+                except Exception:
+                    cur.execute(f'USE WAREHOUSE "{wh}"')
+
+            cur.execute(sql)
+            rows = cur.fetchall()
+            # Close cursor/connection
+            cur.close()
+            conn.close()
+            # Return a similar shape to the REST client (simple): {'data': rows}
+            return {"data": rows}
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def upload_csv(table_name: str, file_path: str, schema: Optional[str] = None, batch_size: int = 500) -> Dict[str, Any]:
@@ -105,6 +170,57 @@ def upload_csv(table_name: str, file_path: str, schema: Optional[str] = None, ba
 
     schema_prefix = f"{schema}." if schema else ""
     # Read CSV and build batched INSERTs
+    # If connector is available prefer executemany for efficiency
+    if _sf_connector is not None:
+        # Read CSV and perform connector-based inserts using executemany
+        with open(file_path, newline="", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            headers = next(reader)
+            values_list = [tuple(row) for row in reader]
+
+        user = os.environ.get("SNOWFLAKE_USER")
+        pwd = os.environ.get("SNOWFLAKE_PASSWORD")
+        account = os.environ.get("SNOWFLAKE_ACCOUNT")
+        conn = _sf_connector.connect(user=user, password=pwd, account=account)
+        try:
+            cur = conn.cursor()
+            # Ensure session context uses provided database/schema/warehouse if present
+            db = os.environ.get("SNOWFLAKE_DATABASE")
+            schema = os.environ.get("SNOWFLAKE_SCHEMA")
+            wh = os.environ.get("SNOWFLAKE_WAREHOUSE")
+            if db:
+                try:
+                    cur.execute(f"USE DATABASE {db}")
+                except Exception:
+                    cur.execute(f'USE DATABASE "{db}"')
+            if schema:
+                try:
+                    cur.execute(f"USE SCHEMA {schema}")
+                except Exception:
+                    cur.execute(f'USE SCHEMA "{schema}"')
+            if wh:
+                try:
+                    cur.execute(f"USE WAREHOUSE {wh}")
+                except Exception:
+                    cur.execute(f'USE WAREHOUSE "{wh}"')
+
+            placeholders = ",".join(["%s"] * len(headers))
+            col_list = ", ".join(headers)
+            sql = f"INSERT INTO {schema_prefix}{table_name} ({col_list}) VALUES ({placeholders})"
+            # executemany expects a sequence of sequences
+            cur.executemany(sql, values_list)
+            conn.commit()
+            inserted = len(values_list)
+            cur.close()
+            conn.close()
+            return {"rows_inserted": inserted}
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # Fallback: use previous REST/batched-insert approach
     with open(file_path, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
         headers = next(reader)

@@ -23,8 +23,29 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans as SKLearnKMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
+import importlib
 
-from .snowflake_api_client import run_query, upload_csv, authenticate
+# Robust loader for the Snowflake REST client
+_sf = None
+try:
+    _sf = importlib.import_module("stoncs.snowflake_api_client")
+except Exception:
+    try:
+        _sf = importlib.import_module("snowflake_api_client")
+    except Exception:
+        _sf = None
+
+if _sf is not None:
+    run_query = getattr(_sf, "run_query")
+    upload_csv = getattr(_sf, "upload_csv")
+    authenticate = getattr(_sf, "authenticate")
+else:
+    def _missing(*args, **kwargs):
+        raise ImportError("snowflake_api_client is not available. Set SNOWFLAKE env vars or ensure the package is importable.")
+
+    run_query = _missing
+    upload_csv = _missing
+    authenticate = _missing
 import os
 
 

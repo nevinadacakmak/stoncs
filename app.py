@@ -6,6 +6,57 @@ Domain: stoncs.local (for demo) - change when deploying.
 This app fetches recommended allocations and visualizations live from Snowflake.
 It uses the modules in this package to compute metrics, narratives, and recommendations.
 """
+
+# Ensure HuggingFace tokenizers parallelism is disabled before any forks/imports
+# This prevents repeated "The current process just got forked" warnings when
+# Streamlit (or the platform) forks processes.
+import os
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+# If a .env file exists in the project root, load it into the environment so
+# `streamlit run app.py` picks up credentials set there. We only set variables
+# that are not already present to avoid overwriting real environment secrets.
+def _load_dotenv_if_present():
+    try:
+        from pathlib import Path
+        root = Path(__file__).resolve().parent
+        dotenv = root / '.env'
+        if not dotenv.exists():
+            return
+        for line in dotenv.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k = k.strip()
+            v = v.strip()
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        # Silently ignore dotenv load errors to avoid crashing the app
+        pass
+
+_load_dotenv_if_present()
+# Compatibility shim: some hosting environments (Streamlit Cloud, containerized runners)
+# import this file as a package module (e.g. `stoncs.app`) which makes relative
+# imports like `from .snowflake_api_client import ...` valid. Other environments
+# run `streamlit run app.py` from the repo root, where top-level imports are
+# needed. We try package-relative imports first and silently fall back.
+try:
+    # package-relative imports (when the app is imported as stoncs.app)
+    from .snowflake_api_client import run_query as _run_query_pkg, authenticate as _auth_pkg
+    from .optimizer import cluster_risk_levels as _cluster_pkg, recommend_portfolio as _recommend_pkg, persist_recommendations as _persist_pkg
+    from .ingest import generate_demo_market_data as _gdm_pkg, generate_demo_news as _gdn_pkg
+    # Bind into module globals so the rest of the file can reference these names
+    globals().setdefault('run_query', _run_query_pkg)
+    globals().setdefault('authenticate', _auth_pkg)
+    globals().setdefault('cluster_risk_levels', _cluster_pkg)
+    globals().setdefault('recommend_portfolio', _recommend_pkg)
+    globals().setdefault('persist_recommendations', _persist_pkg)
+    globals().setdefault('generate_demo_market_data', _gdm_pkg)
+    globals().setdefault('generate_demo_news', _gdn_pkg)
+except Exception:
+    # Ignore — we'll use the dynamic loader below which handles both cases.
+    pass
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,9 +65,30 @@ import altair as alt
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
-from .snowflake_api_client import run_query, authenticate
-from .optimizer import cluster_risk_levels, recommend_portfolio, persist_recommendations
-from .ingest import generate_demo_market_data, generate_demo_news
+def _import_project_modules():
+    """Import project modules robustly to handle package, relative, and top-level contexts.
+
+    Returns a tuple (run_query, authenticate, cluster_risk_levels, recommend_portfolio, persist_recommendations, generate_demo_market_data, generate_demo_news)
+    """
+    # Try package imports first (when installed as `stoncs`), else fall back
+    # to top-level imports (when running `streamlit run app.py` from the repo root).
+    try:
+        import stoncs.snowflake_api_client as _sf
+        import stoncs.optimizer as _opt
+        import stoncs.ingest as _ing
+    except Exception:
+        try:
+            import snowflake_api_client as _sf
+            import optimizer as _opt
+            import ingest as _ing
+        except Exception as e:
+            raise ImportError("Could not import project modules (tried package and top-level): " + str(e))
+
+    return (_sf.run_query, _sf.authenticate, _opt.cluster_risk_levels, _opt.recommend_portfolio, getattr(_opt, 'persist_recommendations', None), _ing.generate_demo_market_data, _ing.generate_demo_news)
+
+
+# Load modules
+run_query, authenticate, cluster_risk_levels, recommend_portfolio, persist_recommendations, generate_demo_market_data, generate_demo_news = _import_project_modules()
 import re
 import os
 
@@ -144,8 +216,16 @@ def load_data():
     if sf_account and sf_user and sf_pwd:
         # Live Snowflake-backed path
         authenticate()
-        # compute_asset_metrics uses Snowflake; import here to avoid heavy deps if unused
-        from .optimizer import compute_asset_metrics, combine_with_narratives
+        # compute_asset_metrics uses Snowflake; import here dynamically to avoid
+        # relative import issues when running `streamlit run app.py` from repo root.
+        import importlib
+        try:
+            _opt = importlib.import_module("stoncs.optimizer")
+        except Exception:
+            _opt = importlib.import_module("optimizer")
+
+        compute_asset_metrics = getattr(_opt, "compute_asset_metrics")
+        combine_with_narratives = getattr(_opt, "combine_with_narratives")
 
         metrics = compute_asset_metrics()
         metrics = cluster_risk_levels(metrics)

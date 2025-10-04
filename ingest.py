@@ -11,8 +11,29 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Tuple, Optional
 import os
+import importlib
 
-from .snowflake_api_client import upload_csv, run_query, authenticate
+# Robust loader for the Snowflake REST client
+_sf = None
+try:
+    _sf = importlib.import_module("stoncs.snowflake_api_client")
+except Exception:
+    try:
+        _sf = importlib.import_module("snowflake_api_client")
+    except Exception:
+        _sf = None
+
+if _sf is not None:
+    upload_csv = getattr(_sf, "upload_csv")
+    run_query = getattr(_sf, "run_query")
+    authenticate = getattr(_sf, "authenticate")
+else:
+    def _missing(*args, **kwargs):
+        raise ImportError("snowflake_api_client is not available. Set SNOWFLAKE env vars or ensure the package is importable.")
+
+    upload_csv = _missing
+    run_query = _missing
+    authenticate = _missing
 
 
 try:

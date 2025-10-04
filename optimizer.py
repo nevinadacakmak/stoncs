@@ -9,8 +9,28 @@ from typing import Dict, Any
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans
+import importlib
 
-from .snowflake_api_client import run_query, authenticate
+# Robust loader for the Snowflake REST client module. Try package import first
+# (when installed as `stoncs`), then fall back to a top-level module import.
+_sf = None
+try:
+    _sf = importlib.import_module("stoncs.snowflake_api_client")
+except Exception:
+    try:
+        _sf = importlib.import_module("snowflake_api_client")
+    except Exception:
+        _sf = None
+
+if _sf is not None:
+    run_query = getattr(_sf, "run_query")
+    authenticate = getattr(_sf, "authenticate")
+else:
+    def _missing(*args, **kwargs):
+        raise ImportError("snowflake_api_client is not available. Set SNOWFLAKE env vars or ensure the package is importable.")
+
+    run_query = _missing
+    authenticate = _missing
 
 
 def compute_asset_metrics(schema_market: str = "STONCS_MARKET") -> pd.DataFrame:
@@ -51,15 +71,39 @@ def compute_asset_metrics(schema_market: str = "STONCS_MARKET") -> pd.DataFrame:
 
 def cluster_risk_levels(metrics_df: pd.DataFrame, n_clusters: int = 3) -> pd.DataFrame:
     """Cluster assets into risk buckets (low/medium/high) using volatility and returns."""
+    # If no data, return early with default columns to avoid KMeans errors
+    if metrics_df is None or len(metrics_df) == 0:
+        out = pd.DataFrame(columns=list(metrics_df.columns) if metrics_df is not None else [])
+        out = out.copy()
+        out["risk_cluster"] = pd.Series(dtype=int)
+        out["risk_label"] = pd.Series(dtype=object)
+        return out
+
     features = metrics_df[["avg_return", "volatility"]].fillna(0).values
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    labels = kmeans.fit_predict(features)
+    n_samples = features.shape[0]
+    # If there are fewer samples than clusters, reduce n_clusters to n_samples
+    if n_samples < 1:
+        # no samples — handled above, but keep guard
+        metrics_df = metrics_df.copy()
+        metrics_df["risk_cluster"] = pd.Series([None] * len(metrics_df))
+        metrics_df["risk_label"] = pd.Series([None] * len(metrics_df))
+        return metrics_df
+
+    effective_clusters = min(n_clusters, n_samples)
+    # If only one sample, assign it to cluster 0 directly
+    if effective_clusters == 1:
+        labels = [0] * n_samples
+    else:
+        kmeans = KMeans(n_clusters=effective_clusters, random_state=42)
+        labels = kmeans.fit_predict(features)
+
     metrics_df = metrics_df.copy()
     metrics_df["risk_cluster"] = labels
 
     # Map cluster ids to labels by average volatility (lowest -> low risk)
     cluster_vol = metrics_df.groupby("risk_cluster")["volatility"].mean().sort_values()
-    mapping = {int(cid): label for cid, label in zip(cluster_vol.index, ["low", "medium", "high"])[: len(cluster_vol)]}
+    labels_list = ["low", "medium", "high"][: len(cluster_vol)]
+    mapping = {int(cid): label for cid, label in zip(cluster_vol.index, labels_list)}
     metrics_df["risk_label"] = metrics_df["risk_cluster"].map(mapping)
     return metrics_df
 
@@ -106,6 +150,16 @@ def recommend_portfolio(budget: float, risk_tolerance: float, metrics_with_narra
     - Finally normalize weights to sum to 1 and multiply by budget
     """
     df = metrics_with_narratives.copy()
+    # Ensure required columns exist
+    if "total_mentions" not in df.columns:
+        df["total_mentions"] = 0
+    if "narrative_score" not in df.columns:
+        df["narrative_score"] = 0.0
+
+    # If empty, return empty DataFrame with expected columns (no exceptions)
+    expected_cols = ["ticker", "risk_label", "avg_return", "volatility", "total_mentions", "narrative_score", "combined_weight", "allocation_amount", "sharpe"]
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=expected_cols)
     # base weight inverse to volatility (add epsilon)
     eps = 1e-6
     df["inv_vol"] = 1.0 / (df["volatility"] + eps)
