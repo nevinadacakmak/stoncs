@@ -1,0 +1,2 @@
+simple stoncs client for judges to test it from the website
+how is the website gonna look like? need good ui
