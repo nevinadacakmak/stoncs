@@ -3,6 +3,8 @@ pandas>=1.5
 requests>=2.28
 # Note: Snowflake Python connector and Snowpark are intentionally omitted because
 # this project uses Snowflake's REST API wrapper (`stoncs.snowflake_api_client`).
+# Add connector so cloud deploys can use connector fallback when REST is blocked
+snowflake-connector-python>=3.0
 numpy>=1.23
 scikit-learn>=1.1
 sentence-transformers>=2.2.2
