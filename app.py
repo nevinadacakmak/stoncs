@@ -65,6 +65,18 @@ import altair as alt
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
+# If running on Streamlit Cloud, users can add secrets in the app settings UI.
+# Mirror any keys from `st.secrets` into os.environ so existing os.environ-based
+# credential checks work without further changes.
+try:
+    if hasattr(st, "secrets") and isinstance(st.secrets, dict):
+        for _k, _v in st.secrets.items():
+            if _k and _v and _k not in os.environ:
+                os.environ[_k] = str(_v)
+except Exception:
+    # don't fail the app if secrets can't be read
+    pass
+
 def _import_project_modules():
     """Import project modules robustly to handle package, relative, and top-level contexts.
 
@@ -300,6 +312,56 @@ def main():
                 st.sidebar.json(r)
             except Exception as e:
                 st.sidebar.error(f"Query failed: {e}")
+        # Connector-based test (explicit)
+        if st.sidebar.button("Test connector (direct)"):
+            try:
+                import snowflake.connector as _sf_test
+            except Exception:
+                st.sidebar.error("snowflake-connector-python not installed in environment (add to requirements)")
+            else:
+                # Gather env vars (do not print values)
+                acct = os.environ.get("SNOWFLAKE_ACCOUNT")
+                user = os.environ.get("SNOWFLAKE_USER")
+                # password intentionally not echoed
+                pwd_present = bool(os.environ.get("SNOWFLAKE_PASSWORD"))
+                missing = [k for k, v in [("SNOWFLAKE_ACCOUNT", acct), ("SNOWFLAKE_USER", user), ("SNOWFLAKE_PASSWORD", os.environ.get("SNOWFLAKE_PASSWORD"))] if not v]
+                if missing:
+                    st.sidebar.error(f"Missing credentials: {', '.join(missing)} — add them to Streamlit Secrets or env and restart")
+                else:
+                    st.sidebar.info("Attempting connector login (will not show password)")
+                    try:
+                        conn = _sf_test.connect(user=user, password=os.environ.get("SNOWFLAKE_PASSWORD"), account=acct)
+                        cur = conn.cursor()
+                        cur.execute("select current_version()")
+                        ver = cur.fetchone()
+                        cur.close()
+                        conn.close()
+                        st.sidebar.success(f"Connector auth OK — server responded: {ver}")
+                    except Exception as ce:
+                        # Show concise error type and message to aid debugging
+                        st.sidebar.error(f"Connector auth failed: {type(ce).__name__}: {str(ce)}")
+        # REST auth diagnostic: tries the login-request flow and reports status
+        if st.sidebar.button("Test REST auth"):
+            try:
+                # authenticate() uses requests.post internally and will raise on HTTP errors
+                authenticate()
+                st.sidebar.success("REST login-request succeeded (token obtained)")
+            except Exception as re:
+                # If this is a requests HTTP error, it may have a response with status_code
+                code = None
+                msg = str(re)
+                try:
+                    import requests as _req
+                    if isinstance(re, _req.HTTPError) and getattr(re, 'response', None) is not None:
+                        code = re.response.status_code
+                        # limit message size
+                        msg = (re.response.text or '')[:300]
+                except Exception:
+                    pass
+                if code:
+                    st.sidebar.error(f"REST auth failed: HTTP {code} - {msg}")
+                else:
+                    st.sidebar.error(f"REST auth failed: {type(re).__name__}: {msg}")
     else:
         st.sidebar.info("Running demo pipeline (no Snowflake credentials detected)")
 

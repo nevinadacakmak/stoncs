@@ -1,246 +1,154 @@
-# Stoncs
+# Stoncs — TL;DR
 
-**Stoncs** is a narrative-aware micro-portfolio optimizer that combines **financial market data** and **news narratives** to create optimized, diversified portfolios. This repo focuses on a REST-first Snowflake integration (Snowflake REST API) and includes a compact demo pipeline so you can present results without external setup.
+Stoncs is a compact, trend-aware portfolio optimizer that combines market data and news headline narratives to produce short, interpretable portfolio recommendations. Designed for fast demos: it runs in a demo mode (no credentials) or connects to Snowflake for a live-backed experience.
+
+Quick start (30s):
+
+- Run locally: `streamlit run app.py` (demo mode if you don't add Snowflake secrets)
+- Use budget + risk slider to get allocations, trend visualizations, and headline event-studies
+- Deploy on Streamlit Cloud and add Snowflake secrets to switch from demo → live
 
 ---
 
 ## Table of Contents
 
-1. [Project Overview](#project-overview)
-2. [Architecture](#architecture)
-3. [Features](#features)
-4. [Data Sources](#data-sources)
-5. [Installation](#installation)
-6. [Usage / Demo](#usage--demo)
-7. [Technical Details](#technical-details)
-8. [Hackathon Notes](#hackathon-notes)
-9. [Future Enhancements](#future-enhancements)
-10. [License](#license)
+1. Quick start
+2. Installation
+3. Run & Demo
+4. Deploy (Streamlit Cloud)
+5. Snowflake & Secrets
+6. Data and Ingestion
+7. Technical details
+8. Hackathon talking points
+9. Troubleshooting
+10. Future work
+11. License
 
 ---
 
-## Project Overview
+## Quick start
 
-Stoncs merges **quantitative finance** and **natural language understanding** to deliver a **portfolio recommendation engine** that is both **data-driven** and **narrative-aware**.  
-Users can input a budget and risk tolerance, and Stoncs will return:
+1. Clone and install (fast demo):
 
-- Optimized portfolio allocation
-- Trending market narratives
-- Companies currently driving market trends
-
-All Snowflake interactions in this repo use a small reusable Snowflake REST client (`stoncs/snowflake_api_client.py`). For hackathon/demo usage the app falls back to an in-memory demo pipeline so no credentials are required.
-
----
-
-## Architecture
-
+```bash
+git clone https://github.com/yourusername/stoncs.git
+cd stoncs
+python -m venv venv && source venv/bin/activate
+pip install -r requirements_demo.txt
 ```
 
-User Input (budget, risk)
-│
-▼
-Snowflake (Market Data + News Headlines)
-│
-├── Snowpark ML: Portfolio Clustering / Risk Analysis
-│
-└── Snowpark ML + NLP: Narrative Detection + Company Trend Scoring
-│
-▼
-Streamlit Dashboard
-├── Pie chart: portfolio allocation
-├── Line chart: historical vs predicted returns
-├── Word cloud: top narratives
-└── Table/bar chart: trending companies
+````
 
+2. Run Streamlit demo UI:
+
+```bash
+streamlit run app.py
 ```
 
----
-
-## Features
-
-- **Market Narrative Detection**: KMeans clustering of news headlines.
-- **Company Trend Detector**: Detects which companies are trending in narratives.
-- **Portfolio Optimizer**: ML-driven risk/return optimization combined with narrative boosts.
-- **Snowflake Integration**: Full data pipeline inside Snowflake; preprocessing, feature engineering, ML computations.
-- **Interactive Dashboard**: Real-time portfolio recommendation + visualization using Streamlit.
-- **Hackathon-ready**: Compact, fun, and visually engaging for judges.
-
----
-
-## Data Sources
-
-- **Market Data**: Yahoo Finance, Alpha Vantage, or Kaggle CSVs (OHLCV format).
-- **News Headlines**: Kaggle financial news datasets or Reddit r/wallstreetbets headlines.
-- **Company List**: Predefined list of tickers / company names for NER matching.
-
-All datasets are ingested into **Snowflake tables** for preprocessing, storage, and ML.
+3. The app runs in demo mode by default (no credentials). To enable live Snowflake-backed flows, add Snowflake credentials as described below.
 
 ---
 
 ## Installation
 
-1. Clone the repo:
+- For a quick demo: `pip install -r requirements_demo.txt`
+- For the full ML experience (embeddings, sentence-transformers): `pip install -r requirements.txt` (note: heavy packages like `sentence-transformers`/`torch` may increase build time or fail on some cloud providers; see Deploy section.)
 
-```bash
-git clone https://github.com/yourusername/stoncs.git
-cd stoncs
-```
-
-2. Create virtual environment:
+Recommended dev setup:
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # Mac/Linux
-venv\Scripts\activate     # Windows
-```
-
-3. Install dependencies (fast demo install):
-
-```bash
+source venv/bin/activate
 pip install -r requirements_demo.txt
 ```
 
-If you want the full ML experience (embeddings + clustering) install the full set:
+---
 
-```bash
-pip install -r requirements.txt
-```
+## Run & Demo
 
-4. (Optional) Set up Snowflake connection (for live demo):
-
-Set the following environment variables if you want the app to use a live Snowflake account:
-
-```
-SNOWFLAKE_ACCOUNT=<your_account>
-SNOWFLAKE_USER=<your_user>
-SNOWFLAKE_PASSWORD=<your_password>
-```
-
-When these env vars are present the app will run Snowflake-backed flows using the REST client.
-
-5. (Optional) Upload demo data and detect narratives in Snowflake (only if you set Snowflake env vars):
-
-```bash
-python run_demo.py
-```
-
-6. Start Streamlit dashboard:
+- Start the Streamlit app:
 
 ```bash
 streamlit run app.py
 ```
 
-### Snowflake REST API (demo)
+- Enter a budget and risk tolerance and click **Run Stoncs Recommendation** to compute allocations and view visualizations (allocation pie, historical vs predicted returns, word cloud, trending companies, event-study table).
 
-This repo includes `stoncs/snowflake_api_client.py` — a small reusable wrapper for Snowflake's REST endpoints (authenticate, run_query, upload_csv, manage_warehouse). For demonstration you can:
+---
 
-1. Set Snowflake env vars (see above).
-2. In the app sidebar click **Run test query (Snowflake)** to run a live `SELECT current_version()` via the REST API and view the JSON response.
+## Deploy (Streamlit Cloud)
 
-If you prefer curl, the legacy login-request + query-request pattern looks like this (replace placeholders):
+1. Push your repo to GitHub.
+2. Create a new app on Streamlit Cloud, point it to this repo and `app.py` as the entrypoint.
+3. Add Snowflake credentials in the app's Secrets UI (see next section) and restart the app.
 
-```bash
-# Authenticate (legacy login-request)
-curl -X POST \
-  "https://<account>.snowflakecomputing.com/session/v1/login-request?warehouse=&database=&schema=" \
-  -H 'Content-Type: application/json' \
-  -d '{"data": {"LOGIN_NAME": "<user>", "PASSWORD": "<password>"}}'
+Notes:
 
-# Use token from response and call the query endpoint
-curl -X POST \
-  "https://<account>.snowflakecomputing.com/queries/v1/query-request" \
-  -H "Authorization: Snowflake Token=<token>" \
-  -H 'Content-Type: application/json' \
-  -d '{"sqlText": "SELECT current_version()"}'
+- If `sentence-transformers` or `torch` fail to install on Streamlit Cloud, remove them from `requirements.txt` and compute embeddings offline (locally or in CI) and persist them to Snowflake.
+- The app copies `st.secrets` into `os.environ` at startup so Snowflake credentials provided via Streamlit Secrets are picked up automatically.
+
+---
+
+## Snowflake & Secrets
+
+The app detects Snowflake credentials from environment variables. On Streamlit Cloud, put the following keys into the Secrets UI (do NOT commit these to your repo):
+
+- `SNOWFLAKE_ACCOUNT`
+- `SNOWFLAKE_USER`
+- `SNOWFLAKE_PASSWORD`
+- Optional: `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_ROLE`
+
+Local testing (do not commit): create `.streamlit/secrets.toml`:
+
+```toml
+SNOWFLAKE_ACCOUNT = "youraccount"
+SNOWFLAKE_USER = "youruser"
+SNOWFLAKE_PASSWORD = "yourpassword"
+SNOWFLAKE_DATABASE = "STONCS_MARKET"
+SNOWFLAKE_SCHEMA = "PUBLIC"
 ```
 
-The Streamlit app also has an option to persist recommended allocations into Snowflake to demonstrate a live write via the REST API.
+The repo includes `stoncs/snowflake_api_client.py`, a compact REST-first Snowflake client that falls back to the official connector when necessary. For production consider using key-pair / OAuth auth instead of username/password.
 
 ---
 
-## Usage / Demo
+## Data and Ingestion
 
-1. Open the Streamlit app in browser.
-2. Enter your **budget** and **risk tolerance**.
-3. View:
-
-   - **Optimized portfolio allocation** (pie chart)
-   - **Historical vs predicted returns** (line chart)
-   - **Top market narratives** (word cloud)
-   - **Trending companies per narrative** (table/bar chart)
+- Market data: downloaded via `yfinance` into CSVs (scripts/ingest_sp500.py) or loaded from your own OHLCV CSVs.
+- News headlines: synthetic generators are provided (`scripts/generate_fake_news.py`) for demo mode; you can plug in a real news API and upload into `STONCS_NEWS.NEWS_HEADLINES`.
+- Upload helpers: `snowflake_api_client.upload_csv()` supports connector-based executemany or a REST/batched-INSERT fallback for portability.
 
 ---
 
-## Technical Details
+## Technical details
 
-### Snowflake + Snowpark
-
-- **Data Storage**: Market + news datasets in Snowflake tables.
-- **Vector Embeddings**: News headlines → embeddings → stored in Snowflake vector column.
-- **Snowpark ML**:
-
-  - KMeans for narrative clustering.
-  - Regression/time series models for portfolio risk/return.
-
-- **Company Trend Scoring**:
-
-  - Extract companies via NER.
-  - Compute trending scores per narrative.
-
-### Portfolio Optimizer
-
-- **Risk metrics**: volatility, average return, Sharpe ratio.
-- **Risk Buckets**: low, medium, high via KMeans clustering.
-- **Narrative Boost**: allocation weighted higher for trending companies.
+- NLP pipeline: optional `sentence-transformers` embeddings + KMeans clustering + TF-IDF label extraction (fallback deterministic heuristics used if heavy ML packages are unavailable).
+- Narrative persistence: the pipeline writes simplified cluster labels and company trend counts to Snowflake; embeddings can be persisted but may require staging/COPY for robust VARIANT handling.
+- Optimizer: combines historical mean/volatility metrics with narrative boosts to compute combined weights. The Streamlit UI limits visuals to the top-20 tickers for readability.
 
 ---
 
-## Hackathon Notes
+## Troubleshooting
 
-- Solo-friendly, ML/data-heavy project for **Best Solo Hack + Best Use of Snowflake**.
-- Emphasize **Snowflake + Snowpark integration** in your pitch:
-
-  > "All preprocessing, clustering, and portfolio optimization runs **inside Snowflake**, making Stoncs scalable and data-driven."
-
-- Fun branding: **Stoncs** → memorable + meme energy.
+- If the app starts in demo mode on Streamlit Cloud, ensure you added SNOWFLAKE\_\* keys in the app Secrets and restarted the app.
+- If `sentence-transformers` fails to install on the host, remove it from `requirements.txt` and precompute embeddings elsewhere.
+- If Snowflake returns "no current database", set `SNOWFLAKE_DATABASE` in Secrets or `.env` and restart.
 
 ---
 
-## Future Enhancements
+## Future work
 
-- Integrate real-time news API for live trending narrative detection.
-- Advanced portfolio optimization (Markowitz frontier, Reinforcement Learning).
-- Sentiment analysis for narratives (positive/negative market impact).
-- Interactive company drill-downs in the dashboard.
+- Real-time news ingestion and streaming updates.
+- Persist embeddings robustly using staged COPY or Snowpark to store VARIANT/VECTOR columns.
+- Improve allocation UI: per-sector grouping, max-N asset constraint, and backtesting charts.
 
 ---
 
 ## License
 
-MIT License. Free to use for hackathons, learning, or demo purposes.
+MIT License — feel free to use and remix for hackathons and demos.
 
----
-
-## Deployment & Run (recommended)
-
-Use the provided helper to load `.env` into your shell before starting Streamlit so the app (and any scripts) inherit Snowflake credentials:
-
-```bash
-# from the repo root
-source scripts/load_env.sh
-# Local dev (run from the project root)
-streamlit run app.py
 ```
 
-For hosting platforms that import your app as a package (which can cause "attempted relative import with no known parent package"), use the stable wrapper entrypoint we provide:
-
-```bash
-# Preferred entrypoint for hosting (Streamlit Cloud / containerized hosts)
-streamlit run streamlit_app.py
 ```
-
-Troubleshooting notes:
-
-- If you see "attempted relative import with no known parent package", use `streamlit_app.py` as the entrypoint or make sure the host runs the app from the repository root (not installed as a package).
-- If Snowflake queries complain "session does not have a current database", ensure `SNOWFLAKE_DATABASE` is set in your `.env` and you `source scripts/load_env.sh` before running the app.
-- To silence HuggingFace tokenizer warnings add `TOKENIZERS_PARALLELISM=false` to your `.env`.
+````
