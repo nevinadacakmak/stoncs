@@ -218,3 +218,29 @@ The Streamlit app also has an option to persist recommended allocations into Sno
 ## License
 
 MIT License. Free to use for hackathons, learning, or demo purposes.
+
+---
+
+## Deployment & Run (recommended)
+
+Use the provided helper to load `.env` into your shell before starting Streamlit so the app (and any scripts) inherit Snowflake credentials:
+
+```bash
+# from the repo root
+source scripts/load_env.sh
+# Local dev (run from the project root)
+streamlit run app.py
+```
+
+For hosting platforms that import your app as a package (which can cause "attempted relative import with no known parent package"), use the stable wrapper entrypoint we provide:
+
+```bash
+# Preferred entrypoint for hosting (Streamlit Cloud / containerized hosts)
+streamlit run streamlit_app.py
+```
+
+Troubleshooting notes:
+
+- If you see "attempted relative import with no known parent package", use `streamlit_app.py` as the entrypoint or make sure the host runs the app from the repository root (not installed as a package).
+- If Snowflake queries complain "session does not have a current database", ensure `SNOWFLAKE_DATABASE` is set in your `.env` and you `source scripts/load_env.sh` before running the app.
+- To silence HuggingFace tokenizer warnings add `TOKENIZERS_PARALLELISM=false` to your `.env`.

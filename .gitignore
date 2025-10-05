@@ -1,2 +1,2 @@
 .env
-, os.environ.get(k))
+env.get(k))PY
