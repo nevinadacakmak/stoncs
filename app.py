@@ -228,6 +228,41 @@ def load_data():
     if sf_account and sf_user and sf_pwd:
         # Live Snowflake-backed path
         authenticate()
+        # Ensure session context is set for REST-based queries: prefer environment values
+        try:
+            db = os.environ.get("SNOWFLAKE_DATABASE")
+            schema = os.environ.get("SNOWFLAKE_SCHEMA")
+            wh = os.environ.get("SNOWFLAKE_WAREHOUSE")
+            # Issue USE statements via REST so subsequent queries have a current DB/SCHEMA
+            if db:
+                try:
+                    run_query(f"USE DATABASE {db}")
+                except Exception:
+                    # try quoted identifier form
+                    try:
+                        run_query(f'USE DATABASE "{db}"')
+                    except Exception:
+                        pass
+            if schema:
+                try:
+                    run_query(f"USE SCHEMA {schema}")
+                except Exception:
+                    try:
+                        run_query(f'USE SCHEMA "{schema}"')
+                    except Exception:
+                        pass
+            if wh:
+                try:
+                    run_query(f"USE WAREHOUSE {wh}")
+                except Exception:
+                    try:
+                        run_query(f'USE WAREHOUSE "{wh}"')
+                    except Exception:
+                        pass
+        except Exception:
+            # If any of the context-setting calls fail, continue and allow downstream
+            # code to handle failures (we don't want to crash the UI here).
+            pass
         # compute_asset_metrics uses Snowflake; import here dynamically to avoid
         # relative import issues when running `streamlit run app.py` from repo root.
         import importlib
